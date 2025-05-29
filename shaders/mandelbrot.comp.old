@@ -1,0 +1,60 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+layout (binding = 0) uniform readonly UniformBufferObject {
+    double zoom;
+    double x_offset;
+    double y_offset;
+    //double scaled_size_x;
+    //double size_offset_x;
+    //double scaled_size_y;
+    //double size_offset_y;
+} ubo;
+layout (binding = 1, rgba8) uniform writeonly image2D outImage;
+
+const uint max_iter = 4096;
+
+void main() {
+    const uvec2 gid = gl_GlobalInvocationID.xy;
+    const ivec2 pixel = ivec2(gid);
+    const ivec2 size = imageSize(outImage);  // Get image dimensions
+
+    if (gid.x >= uint(size.x) || gid.y >= uint(size.y)) {
+        return;
+    }
+
+    const double ratio = double(size.x) / double(size.y);
+
+    const double x_scale = ratio > 1 ? ratio : 1;
+    const double y_scale = ratio < 1 ? 1 / ratio : 1;
+
+    const dvec2 base_size_x = vec2(-2.0, 0.47) * x_scale;
+    const dvec2 base_size_y = vec2(-1.12, 1.12) * y_scale;
+
+    const double base_x = double(gid.x) / (float(size.x) / (base_size_x[1] - base_size_x[0])) + base_size_x[0];
+    const double base_y = double(gid.y) / (float(size.y) / (base_size_y[1] - base_size_y[0])) + base_size_y[0];
+
+    const double x0 = base_x / ubo.zoom + ubo.x_offset;
+    const double y0 = base_y / ubo.zoom + ubo.y_offset; 
+
+    double x = 0.0;
+    double y = 0.0;
+    double x2 = 0.0;
+    double y2 = 0.0;
+
+    uint iteration = 0;
+
+    while (x2 + y2 <= 4.0 && iteration < max_iter) {
+        y = 2.0 * x * y + y0;
+        x = x2 - y2 + x0;
+        x2 = x * x;
+        y2 = y * y;
+        iteration = iteration + 1;
+    }
+
+    const vec4 color = vec4(vec3(1.0 - float(iteration) / float(max_iter - 1)), 1.0);
+
+    imageStore(outImage, pixel, color);
+}
+
+// vim: shiftwidth=4 softtabstop=4 tabstop=8
