@@ -26,6 +26,8 @@ swap_images: []SwapImage,
 image_index: u32,
 next_image_acquired: vk.Semaphore,
 
+frame_id: u64 = 0,
+
 pub fn init(gc: *const GraphicsContext, allocator: Allocator, extent: vk.Extent2D) !Swapchain {
     return try initRecycle(gc, allocator, extent, .null_handle);
 }
@@ -169,6 +171,11 @@ pub fn present(self: *Swapchain, cmdbuf: vk.CommandBuffer) !PresentState {
         .p_signal_semaphores = @ptrCast(&current.render_finished),
     }}, current.frame_fence);
 
+    const present_id: vk.PresentIdKHR = .{
+        .swapchain_count = 1,
+        .p_present_ids = &.{self.getFrameID()},
+    };
+
     // Step 3: Present the current frame
     _ = try self.gc.dev.queuePresentKHR(self.gc.present_queue.handle, &.{
         .wait_semaphore_count = 1,
@@ -176,6 +183,7 @@ pub fn present(self: *Swapchain, cmdbuf: vk.CommandBuffer) !PresentState {
         .swapchain_count = 1,
         .p_swapchains = @ptrCast(&self.handle),
         .p_image_indices = @ptrCast(&self.image_index),
+        .p_next = &present_id,
     });
 
     // Step 4: Acquire next frame
@@ -194,6 +202,12 @@ pub fn present(self: *Swapchain, cmdbuf: vk.CommandBuffer) !PresentState {
         .suboptimal_khr => .suboptimal,
         else => unreachable,
     };
+}
+
+fn getFrameID(self: *@This()) u64 {
+    const current_id = self.frame_id;
+    self.frame_id += 1;
+    return current_id;
 }
 
 pub const SwapImage = struct {
@@ -296,8 +310,9 @@ fn findPresentMode(gc: *const GraphicsContext, allocator: Allocator) !vk.Present
     defer allocator.free(present_modes);
 
     const preferred = [_]vk.PresentModeKHR{
-        //.immediate_khr,
         .mailbox_khr,
+        .fifo_latest_ready_ext,
+        //.immediate_khr,
         .fifo_relaxed_khr,
         .fifo_khr,
     };

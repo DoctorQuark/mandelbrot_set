@@ -15,6 +15,9 @@ const apis: []const vk.ApiInfo = &.{
     vk.extensions.khr_surface,
     vk.extensions.khr_swapchain,
     vk.extensions.ext_debug_utils,
+    vk.extensions.khr_get_physical_device_properties_2,
+    vk.extensions.ext_present_mode_fifo_latest_ready,
+    vk.extensions.khr_present_id,
         // vk.extensions.ext_device_address_binding_report,
 };
 
@@ -79,6 +82,7 @@ pub fn init(
     extension_names.appendAssumeCapacity("VK_KHR_xcb_surface");
     if (enable_validation_layers) {
         extension_names.appendAssumeCapacity("VK_EXT_debug_utils");
+        extension_names.appendAssumeCapacity("VK_EXT_present_mode_fifo_latest_ready");
         // extension_names.appendAssumeCapacity("VK_EXT_device_address_binding_report");
     }
 
@@ -106,6 +110,8 @@ pub fn init(
             .message_severity = .{
                 .error_bit_ext = true,
                 .warning_bit_ext = true,
+                .info_bit_ext = true,
+                .verbose_bit_ext = true,
             },
             .message_type = .{
                 .general_bit_ext = true,
@@ -217,12 +223,24 @@ fn initializeCandidate(instance: Instance, candidate: DeviceCandidate) !vk.Devic
     const queue_sum = @intFromBool(graphics_present_different) + @intFromBool(graphics_compute_different) + @intFromBool(present_compute_different);
     const queue_count = if (queue_sum == 0) 1 else queue_sum;
 
+    var present_mode_fifo_latest_ready_features: vk.PhysicalDevicePresentModeFifoLatestReadyFeaturesEXT = .{
+        .present_mode_fifo_latest_ready = vk.TRUE,
+    };
+
+    const physical_device_present_id_features: vk.PhysicalDevicePresentIdFeaturesKHR = .{
+        .present_id = vk.TRUE,
+        .p_next = @ptrCast(&present_mode_fifo_latest_ready_features),
+    };
+
     return try instance.createDevice(candidate.pdev, &.{
         .queue_create_info_count = queue_count,
         .p_queue_create_infos = &qci,
         .enabled_extension_count = required_device_extensions.len,
         .pp_enabled_extension_names = @ptrCast(&required_device_extensions),
-        .p_enabled_features = &.{ .shader_float_64 = vk.TRUE },
+        .p_enabled_features = &.{
+            .shader_float_64 = vk.TRUE,
+        },
+        .p_next = @ptrCast(&physical_device_present_id_features),
     }, null);
 }
 

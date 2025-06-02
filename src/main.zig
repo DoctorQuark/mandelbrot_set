@@ -85,36 +85,14 @@ pub fn main() !void {
 
     _ = xcb.map_window(connection, window);
 
-    // Spawn a thread for managing xorg events.
-    // Messages will be passed using a queue.
-    // Thread is used so it an block on wait_for_event, while the main thread can run without interruption.
-    var event_queue = try MessageQueue.init(gpa, 16);
-    defer event_queue.deinit();
-
-    //var payload_queue = try PayloadQueue.init(gpa, 1);
-    var payload_queue = try PayloadQueue.init(gpa, 8);
-    defer payload_queue.deinit();
-
-    std.log.debug("starting event thread", .{});
-    const event_thread = try std.Thread.spawn(
-        .{},
-        processXEvents,
-        .{
-            gpa,
-            &connection,
-            window,
-            atom_wm_protocols,
-            atom_wm_delete_window,
-            &extent,
-            &event_queue,
-            &payload_queue,
-            stderr,
-        },
-    );
-    defer event_thread.join();
-
     // ------------------------- VULKAN -------------------------
-    const gc = try GraphicsContext.init(gpa, "Mandelbrot set", connection, window, enable_validation_layers);
+    const gc = GraphicsContext.init(gpa, "Mandelbrot set", connection, window, enable_validation_layers) catch |err| switch (err) {
+        error.ExtensionNotPresent => {
+            std.log.err("Extension {!} not found", .{err});
+            std.process.fatal("Missing {} extension", .{1});
+        },
+        else => return err,
+    };
     defer gc.deinit();
     //std.log.debug("Graphics queue: {}", .{gc.graphics_queue});
     //std.log.debug("Present queue: {}", .{gc.present_queue});
@@ -153,6 +131,34 @@ pub fn main() !void {
     }
     try stderr.print("buffering)\n", .{});
     try bw_err.flush();
+
+    std.log.debug("starting event thread", .{});
+    // Spawn a thread for managing xorg events.
+    // Messages will be passed using a queue.
+    // Thread is used so it an block on wait_for_event, while the main thread can run without interruption.
+    var event_queue = try MessageQueue.init(gpa, 16);
+    defer event_queue.deinit();
+
+    //var payload_queue = try PayloadQueue.init(gpa, 1);
+    var payload_queue = try PayloadQueue.init(gpa, 8);
+    defer payload_queue.deinit();
+
+    const event_thread = try std.Thread.spawn(
+        .{},
+        processXEvents,
+        .{
+            gpa,
+            &connection,
+            window,
+            atom_wm_protocols,
+            atom_wm_delete_window,
+            &extent,
+            &event_queue,
+            &payload_queue,
+            stderr,
+        },
+    );
+    defer event_thread.join();
 
     while (event_queue.receive()) |event| {
         if (event == .extent_changed) break else try stderr.print("Unexpected event: {}\n", .{event});
